@@ -6,6 +6,11 @@ This file provides guidance for AI assistants (like Claude Code) when helping de
 
 **@mavenmm/teamwork-auth** is a React authentication package for Maven Marketing's centralized SSO system. It provides zero-configuration authentication with automatic environment detection.
 
+> **Note (v3.0)**: The auth service has been migrated from Netlify serverless functions to the
+> **maven-dashboard server** (Digital Ocean droplet). This provides Redis-backed session persistence,
+> token blacklisting, and improved reliability. The API endpoints have changed from
+> `/.netlify/functions/*` to `/auth/*`.
+
 ## Quick Start
 
 ```tsx
@@ -37,7 +42,7 @@ function App() {
 ## Environment Detection (Zero Config!)
 
 The package automatically detects the environment:
-- `localhost` → uses `http://localhost:9100` (local auth service)
+- `localhost` → uses `http://localhost:4000` (local maven-dashboard server)
 - `*.mavenmm.com` → uses `https://auth.mavenmm.com` (production)
 - `*.netlify.app` → uses `https://auth.mavenmm.com` (staging)
 
@@ -185,11 +190,10 @@ VITE_DOMAIN_KEY=dev_localhost_shared
 ```
 
 3. **Start local auth service:**
-Clone the auth service repo and run:
+Start the maven-dashboard server which hosts the auth routes:
 ```bash
-git clone <auth-service-repo>
-cd <auth-service-repo>
-netlify dev --port 9100
+cd maven-dashboard/server
+yarn start  # Runs on port 4000
 ```
 
 4. **Use in your app:**
@@ -201,9 +205,9 @@ import { useTeamworkAuth, Login } from '@mavenmm/teamwork-auth';
 ### Common Issues & Solutions
 
 **Issue: "Auth service unreachable"**
-- Make sure local auth service is running on port 9100
-- Run: `netlify dev --port 9100` in the auth service directory
-- Check if port 9100 is available (not used by another process)
+- Make sure the maven-dashboard server is running on port 4000
+- Run: `yarn start` in the maven-dashboard/server directory
+- Check if port 4000 is available (not used by another process)
 
 **Issue: "Invalid domain key"**
 - Verify `VITE_DOMAIN_KEY` in your app matches `DEV_KEY` in auth service
@@ -236,7 +240,7 @@ import { useTeamworkAuth, Login } from '@mavenmm/teamwork-auth';
 - For localhost: Use `dev_localhost_shared` (not port-specific keys)
 - Clear browser cookies and localStorage, then login again
 - Check auth service logs for "Invalid domain key" or "Domain validation failed"
-- Verify your app's origin is registered in `functions/config/domains.ts`
+- Verify your app's origin is registered in `maven-dashboard/server/lib/auth/config/domains.ts`
 
 **Issue: "User info not loading after login" (Migration)**
 - The hook automatically fetches user data if localStorage is empty (v2.0.4+)
@@ -339,16 +343,17 @@ async function callAPI() {
 
 ### Getting Teamwork API Token (Backend/Serverless)
 
-**For third-party integrations** (GraphQL servers, serverless functions, etc.) that need the actual **Teamwork API token**, use the `/token` endpoint:
+**For third-party integrations** (GraphQL servers, serverless functions, etc.) that need the actual **Teamwork API token**, use the `/auth/token` endpoint:
 
 ```typescript
 // In your serverless function or GraphQL resolver
 async function getTeamworkToken(mavenAccessToken: string) {
-  const response = await fetch('https://auth.mavenmm.com/.netlify/functions/token', {
+  const response = await fetch('https://auth.mavenmm.com/auth/token', {
     method: 'GET',
     headers: {
       'Authorization': `Bearer ${mavenAccessToken}`,
       'X-Domain-Key': process.env.DOMAIN_KEY,
+      'Origin': 'https://your-app.mavenmm.com', // Required for server-to-server requests
     },
     credentials: 'include', // Important: sends cookies
   });
@@ -433,37 +438,44 @@ The OAuth flow:
 ```
 Your App (localhost:3000)
     ↓
-Local Auth Service (localhost:9100)
+maven-dashboard server (localhost:4000/auth/*)
+    ↓
+Redis (session persistence)
     ↓
 Teamwork API
 ```
 - Cookies: Same domain, work perfectly
 - No CORS issues (same origin)
-- Fast development iteration
+- Redis-backed session persistence (same as production)
 
 ### Production (*.mavenmm.com)
 ```
 Your App (home.mavenmm.com)
     ↓
-Auth Service (auth.mavenmm.com)
+maven-dashboard server (auth.mavenmm.com/auth/*)
+    ↓
+Redis (session persistence, token blacklisting)
     ↓
 Teamwork API
 ```
 - Cookies: Shared domain `.mavenmm.com`, work perfectly
-- CORS: Configured in auth service
+- CORS: Configured in auth middleware
+- Redis-backed: Token blacklisting, rate limiting, session persistence
 - Single auth service for all Maven apps
 
 ### Staging (*.netlify.app)
 ```
 Your App (preview.netlify.app)
     ↓
-Auth Service (auth.mavenmm.com)
+maven-dashboard server (auth.mavenmm.com/auth/*)
+    ↓
+Redis (session persistence, token blacklisting)
     ↓
 Teamwork API
 ```
 - Cookies: Cross-site HTTPS, work with CORS
 - Each preview needs to be registered in auth service
-- Useful for testing before production deploy
+- Same Redis-backed infrastructure as production
 
 ## Package Exports
 
@@ -497,10 +509,11 @@ Your app must have these installed.
 
 ## Version Compatibility
 
-- **v2.0.x**: Latest, with dual-token architecture and domain authentication
+- **v3.0.x**: Latest, with Redis-backed persistence on maven-dashboard server
+- **v2.0.x**: Netlify serverless functions (deprecated, but still works with legacy support)
 - **v1.x**: Legacy, deprecated
 
-Always use the latest v2.x version for new projects.
+Always use the latest v3.x version for new projects.
 
 ## When NOT to Use This Package
 
@@ -521,7 +534,7 @@ This package is specifically for Maven Marketing apps that:
 1. **Check auth service logs:**
    ```bash
    # Local development
-   # Logs appear in terminal where you ran: netlify dev --port 9100
+   # Logs appear in terminal where you ran: yarn start in maven-dashboard/server
    ```
 
 2. **Check browser console:**
@@ -631,7 +644,7 @@ VITE_DOMAIN_KEY=<unique_production_key>
 ```
 
 **3. Register Your Domain** (Production Only)
-Contact DevOps to add your domain to `functions/config/domains.ts`:
+Contact DevOps to add your domain to `maven-dashboard/server/lib/auth/config/domains.ts`:
 - Production: `https://your-app.mavenmm.com`
 - Staging: `https://your-app.netlify.app`
 
@@ -657,17 +670,16 @@ function App() {
 
 **5. Start Local Auth Service** (Development Only)
 ```bash
-# Clone auth service repo
-git clone <auth-service-repo>
-cd <auth-service-repo>
+# The auth service is now hosted on the maven-dashboard server
+cd maven-dashboard/server
 
-# Set up .env with DEV_KEY=dev_localhost_shared
-netlify dev --port 9100
+# Ensure .env has the domain keys configured
+yarn start  # Runs on port 4000
 ```
 
 **6. Test Authentication Flow**
 - Clear browser cookies and localStorage
-- Start your app (should auto-detect `localhost:9100`)
+- Start your app (should auto-detect `localhost:4000`)
 - Click login, authenticate with Teamwork
 - Verify user data loads correctly
 - Test logout and re-login
@@ -678,18 +690,18 @@ netlify dev --port 9100
 |---------|----------|
 | "Invalid domain key" | Use `dev_localhost_shared` for localhost, not port-specific keys |
 | Cookies not persisting | Clear all cookies/localStorage and login fresh |
-| User data is null | Hook auto-fetches from `/user` endpoint (v2.0.4+) - verify it's deployed |
-| "Auth service unreachable" | Start local auth service on port 9100 |
-| CORS errors | Verify your origin is in `functions/config/domains.ts` |
+| User data is null | Hook auto-fetches from `/auth/user` endpoint - verify server is running |
+| "Auth service unreachable" | Start maven-dashboard server: `cd maven-dashboard/server && yarn start` |
+| CORS errors | Verify your origin is in `maven-dashboard/server/lib/auth/config/domains.ts` |
 | 401 on Teamwork OAuth | Ensure `VITE_REDIRECT_URI` is registered in Teamwork OAuth app settings |
 
 **8. Verify Production Deployment**
 Before deploying to production:
-- ✅ Domain registered in auth service
+- ✅ Domain registered in maven-dashboard server's auth config
 - ✅ `VITE_DOMAIN_KEY` env var set (production value)
 - ✅ `VITE_CLIENT_ID` env var set
 - ✅ `VITE_REDIRECT_URI` set to production URL
-- ✅ Auth service `/user` endpoint deployed
+- ✅ maven-dashboard server running with Redis
 - ✅ Test login/logout flow in staging first
 
 ### Migration from v1.x
@@ -731,13 +743,23 @@ See MIGRATION_V2.md in the auth service repo for detailed migration guide.
 
 ---
 
-**Last Updated:** v2.2.0
+**Last Updated:** v3.0.0
 **Package:** @mavenmm/teamwork-auth
-**Auth Service:** auth.mavenmm.com (v2.0)
+**Auth Service:** auth.mavenmm.com (maven-dashboard server v3.0)
 
 ## Changelog
 
-### v2.2.0 (Latest)
+### v3.0.0 (Latest)
+- ✅ **Auth service migrated to maven-dashboard server** - No more Netlify serverless functions
+- ✅ **Redis-backed session persistence** - Sessions survive server restarts
+- ✅ **Token blacklisting** - Immediate revocation on logout via Redis
+- ✅ **Improved rate limiting** - Redis-backed brute force protection
+- ✅ API endpoints changed from `/.netlify/functions/*` to `/auth/*`
+- ✅ Local development port changed from 9100 to 4000 (maven-dashboard server)
+- ✅ Updated documentation for new architecture
+- ⚠️ **Breaking:** Requires maven-dashboard server for local development instead of Netlify CLI
+
+### v2.2.0
 - ✅ **Automatic OAuth code detection** - No more manual `useEffect` for OAuth callbacks!
 - ✅ Hook automatically processes `?code=` parameter from URL
 - ✅ Duplicate login prevention built-in

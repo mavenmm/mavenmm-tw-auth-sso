@@ -4,15 +4,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This repository contains TWO main components for Maven Marketing's centralized SSO system:
+This repository contains the NPM package for Maven Marketing's centralized SSO system:
 
-1. **NPM Package** (`src/`): Frontend-only React package for consuming apps
-2. **Auth Service** (`auth-service/`): Centralized authentication service deployed at `auth.mavenmm.com`
+1. **NPM Package** (`teamwork-auth/`): Frontend-only React package for consuming client apps
+2. **Auth Service** (MIGRATED): Now hosted on **maven-dashboard server** at `/auth/*` routes
 
-### Architecture (v2.0) - Centralized SSO
-- **External Auth Service**: All authentication logic centralized at `auth.mavenmm.com`
-- **Frontend Package**: React components/hooks that communicate with external auth service
-- **Zero Backend Code**: Individual Maven apps only need frontend React components
+> **Note (v3.0)**: The auth service has been migrated from Netlify serverless functions in this repo
+> to the **maven-dashboard server** (Digital Ocean droplet). The `functions/` directory is now legacy.
+> See `maven-dashboard/server/lib/auth/` for the current auth service implementation.
+
+### Architecture (v3.0) - Centralized SSO with Redis
+- **Auth Service**: Hosted on maven-dashboard server at `auth.mavenmm.com/auth/*`
+- **Frontend Package**: React components/hooks that communicate with auth service
+- **Redis-backed**: Token blacklisting, rate limiting, and session persistence
+- **Zero Backend Code**: Individual Maven apps only need the frontend React package
 - **Multi-Site Support**: Works across all `*.mavenmm.com` subdomains with shared cookie domain
 - **Single Point of Security**: All Teamwork API tokens and JWT secrets managed centrally
 
@@ -27,13 +32,15 @@ npm run test            # Run Jest unit tests
 npm run type-check      # TypeScript type checking
 ```
 
-### Auth Service Development
+### Auth Service Development (MIGRATED to maven-dashboard)
 ```bash
-cd auth-service/
-npm install            # Install auth service dependencies
-npm run dev            # Start auth service with Netlify dev
-npm run build          # Build auth service for deployment
-npm run test           # Test auth service functions
+# Auth service is now hosted on maven-dashboard server
+cd maven-dashboard/server/
+yarn install           # Install dependencies
+yarn start             # Start server on port 4000 (includes /auth/* routes)
+
+# Auth routes are at: maven-dashboard/server/lib/auth/
+# The functions/ directory in this repo is now legacy
 ```
 
 ## Architecture
@@ -52,16 +59,17 @@ The package provides a single entry point:
 - **Login**: Pre-built login component using `@teamwork/login-button`
 - **TeamworkAuthConfig**: TypeScript interface for optional configuration overrides
 
-### Auth Service Components (`auth-service/`)
-- **Netlify Functions**: Complete auth handlers (`login.ts`, `logout.ts`, `checkAuth.ts`, `sso.ts`)
-- **Middleware**: Cookie validation and JWT handling
-- **Types**: Teamwork API interfaces and auth types
+### Auth Service Components (MIGRATED to `maven-dashboard/server/lib/auth/`)
+- **Express Routes**: Auth handlers at `/auth/*` (`login.ts`, `logout.ts`, `refresh.ts`, `checkAuth.ts`, `token.ts`, `user.ts`, `sso.ts`)
+- **Middleware**: Domain validation, CORS, rate limiting (Redis-backed)
+- **Utils**: Token manager with Redis blacklisting, security headers, logger
+- **Config**: Domain registry for registered apps
 
-### Configuration (Auto-Detection v2.0.1+)
-- **NPM Package**: Zero configuration! Auto-detects localhost:9100 vs production auth.mavenmm.com
+### Configuration (Auto-Detection v3.0)
+- **NPM Package**: Zero configuration! Auto-detects localhost:4000 vs production auth.mavenmm.com
   - Optional manual override: `useTeamworkAuth({ authServiceUrl: 'custom-url' })`
-- **Auth Service**: Runs on port 9100 (dedicated port to avoid conflicts)
-- **Environment Variables**: Only needed in auth service (Teamwork OAuth credentials and JWT secrets)
+- **Auth Service**: Runs on maven-dashboard server port 4000 (routes at `/auth/*`)
+- **Environment Variables**: Configured on maven-dashboard server (Teamwork OAuth credentials, JWT secrets, domain keys)
 
 ### TypeScript Types
 Comprehensive type definitions in `src/types/index.ts` covering:
@@ -97,19 +105,19 @@ The project uses Jest with TypeScript for testing:
 
 ### Local Testing Setup
 ```bash
-# Terminal 1 - Auth Service
-cd auth-service/
-npm run dev
+# Terminal 1 - Auth Service (maven-dashboard server)
+cd maven-dashboard/server/
+yarn start  # Runs on port 4000 with /auth/* routes
 
-# Terminal 2 - Test App
-cd test-app/
+# Terminal 2 - Test App (or your client app)
+cd test-app/  # or your client app
 npm run dev
 ```
 
 ### Environment Configuration
-- **Auth Service**: `.env` file in `auth-service/` (also copied to parent directory for Netlify dev)
-- **Test App**: `.env` file copied to `test-app/` directory
-- **Required vars**: `VITE_CLIENT_ID`, `VITE_CLIENT_SECRET`, `VITE_REDIRECT_URI`, `JWT_KEY`, `DEV_ID`
+- **Auth Service**: `.env` file on maven-dashboard server
+- **Client Apps**: Need `VITE_CLIENT_ID`, `VITE_REDIRECT_URI`, `VITE_DOMAIN_KEY`
+- **Server vars**: `JWT_KEY`, `JWT_REFRESH_KEY`, `TEAMWORK_CLIENT_ID`, `TEAMWORK_CLIENT_SECRET`, `DOMAIN_KEY_*`
 
 ### ✅ Issues Resolved
 1. **✅ Login Button Fixed**: Environment variables now loading properly via Login component props
@@ -128,54 +136,52 @@ npm run dev
 - ✅ Authentication state persistence across page refreshes
 - ✅ Automatic URL cleanup after OAuth callback
 - ✅ Proper JWT validation and cookie handling
-- ✅ Auto-detection of auth service URL (localhost:9100 vs production)
+- ✅ Auto-detection of auth service URL (localhost:4000 vs production)
 - ✅ Helpful error messages when auth service is unreachable
 
 ### Key Technical Learnings
-1. **Dedicated Auth Port**: Port 9100 for auth service avoids conflicts with other dev tools
-2. **Zero Config Package**: Auto-detects environment (localhost vs *.mavenmm.com)
+1. **maven-dashboard Server**: Auth routes at `/auth/*` on port 4000
+2. **Zero Config Package**: Auto-detects environment (localhost:4000 vs auth.mavenmm.com)
 3. **Cookie Domain for Localhost**: Use `.localhost` domain to share cookies across ports
 4. **HttpOnly Cookies**: Frontend cannot read httpOnly cookies - must use API calls to check auth state
-5. **Content-Type Headers**: Netlify Functions need explicit `Content-Type: application/json` headers
+5. **Redis-backed**: Token blacklisting and rate limiting persist across server restarts
 6. **React Hook Dependencies**: No longer needed with auto-detection!
 7. **CORS for Development**: Centralized CORS middleware essential for localhost cross-port communication
+8. **Server-to-Server Requests**: Need explicit `Origin` header for domain validation
 
-### 🎯 Deployment Readiness (v2.0)
+### 🎯 Deployment Readiness (v3.0)
 
-**Status**: ✅ **READY FOR PRODUCTION DEPLOYMENT**
+**Status**: ✅ **PRODUCTION DEPLOYED**
 
-The centralized SSO system is now complete and fully functional:
+The centralized SSO system is now complete and deployed on maven-dashboard server:
 
-#### ✅ Core Components Ready
-- **NPM Package**: Frontend React components ready for consumption
-- **Auth Service**: Complete Netlify Functions ready for auth.mavenmm.com deployment
-- **Documentation**: Comprehensive guides for deployment and integration
+#### ✅ Core Components Deployed
+- **NPM Package**: Frontend React components published and ready for consumption
+- **Auth Service**: Express routes on maven-dashboard server at `auth.mavenmm.com/auth/*`
+- **Redis**: Session persistence, token blacklisting, rate limiting
 
 #### ✅ Security Features Implemented
 - HttpOnly cookies for XSS protection
-- JWT tokens with 2-week expiry
-- CORS protection with explicit allowlists
-- Centralized token management (no secrets in frontend)
+- JWT tokens with 15-minute expiry (access) and 7-day expiry (refresh)
+- Redis-backed token blacklisting for immediate revocation
+- CORS protection with explicit domain allowlists
+- Rate limiting to prevent brute force attacks
+- Domain authentication keys to prevent domain spoofing
 
 #### ✅ Production Features
 - Cross-subdomain authentication (*.mavenmm.com)
-- Persistent authentication sessions
-- Automatic OAuth parameter cleanup
-- Proper error handling and validation
+- Persistent sessions that survive server restarts
+- Automatic token refresh and rotation
+- Single-use refresh tokens
 
-#### 📋 Next Production Steps
-1. **Deploy Auth Service**: Follow DEPLOYMENT.md to deploy to auth.mavenmm.com
-2. **Publish NPM Package**: Release frontend package for Maven apps
-3. **Integrate Maven Apps**: Use INTEGRATION.md for step-by-step app integration
-4. **Security Review**: Address remaining items in SECURITY.md
-
-#### 🔄 Remaining Development Tasks
-- Remove token exposure from production logs (security hardening)
-- Enhance cookie security settings for production environment
+#### 📋 Maintenance Tasks
+1. **Update Client Apps**: Ensure all apps use v3.0 package
+2. **Monitor Redis**: Watch for memory usage in token blacklist
+3. **Rotate Domain Keys**: Periodically update domain authentication keys
 
 ## Multi-Site Integration
 
-### Adding Auth to New Maven Apps (v2.0.1+ Zero Config!)
+### Adding Auth to New Maven Apps (v3.0 Zero Config!)
 
 For any new Maven app (e.g., `app1.mavenmm.com`, `admin.mavenmm.com`):
 
@@ -184,7 +190,7 @@ For any new Maven app (e.g., `app1.mavenmm.com`, `admin.mavenmm.com`):
 import { useTeamworkAuth } from '@mavenmm/teamwork-auth';
 
 function App() {
-  // Auto-detects production (auth.mavenmm.com) vs local (localhost:9100)
+  // Auto-detects production (auth.mavenmm.com/auth/*) vs local (localhost:4000/auth/*)
   const { user, isAuthenticated, logout, error } = useTeamworkAuth();
 
   // Show helpful error if auth service is unreachable
@@ -199,9 +205,9 @@ function App() {
 
 **For local development:**
 ```bash
-# Terminal 1 - Start auth service on port 9100
-cd auth-service/
-npm run dev
+# Terminal 1 - Start maven-dashboard server (includes auth routes)
+cd maven-dashboard/server/
+yarn start  # Runs on port 4000 with /auth/* routes
 
 # Terminal 2 - Start your Maven app
 npm run dev
@@ -220,23 +226,23 @@ npm run dev
 ### ⚠️ CRITICAL SECURITY NOTES
 
 **Teamwork API Token Protection**:
-- Permanent Teamwork API tokens are stored ONLY in `auth-service/.env`
+- Permanent Teamwork API tokens are stored ONLY in maven-dashboard server `.env`
 - Tokens never transmitted to frontend applications
-- JWT tokens used for client-server communication (2-week expiry)
-- HttpOnly cookies prevent XSS access to authentication tokens
+- Short-lived JWT access tokens (15-minute expiry) with refresh tokens (7-day expiry)
+- HttpOnly cookies prevent XSS access to refresh tokens
 
-**Current Security Issues (NEEDS FIXING)**:
-1. **Token Exposure**: Console.log statements in middleware expose access tokens
-2. **CORS Vulnerabilities**: Automatic origin reflection allows any domain
-3. **Insecure Cookies**: Missing secure/sameSite settings for production
-4. **Environment Exposure**: Frontend debug logs expose environment variables
+**Security Features (v3.0)**:
+1. **Redis Token Blacklisting**: Immediate revocation on logout
+2. **Rate Limiting**: Redis-backed brute force protection
+3. **Domain Authentication Keys**: Unique keys per registered domain
+4. **Cookie Security**: `secure: true`, `sameSite: 'lax'`, `httpOnly: true` in production
+5. **CORS Allowlist**: Explicit domain registration required
 
 **Security Best Practices**:
-- Use `secure: true` for cookies in production
-- Implement `sameSite: 'strict'` for CSRF protection
-- Remove all token logging from production code
-- Use explicit CORS allowlist instead of reflecting origins
-- Regular security audits of authentication flow
+- Domain keys are unique per application (never share between apps)
+- All `*.mavenmm.com` cookies share `.mavenmm.com` domain
+- Refresh tokens are single-use and rotated on each use
+- Access tokens are stored in memory (not localStorage)
 
 ## CLI Tool
 

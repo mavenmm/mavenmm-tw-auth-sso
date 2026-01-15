@@ -88,7 +88,10 @@
       'https://auth.mavenmm.com',
       // Add all production Maven apps:
       'https://home.mavenmm.com',
-      'https://admin.mavenmm.com',
+      'https://status.mavenmm.com',
+      'https://paab.mavenmm.com',
+      'https://job-tracker.mavenmm.com',
+      'https://dashboard.mavenmm.com',
       // ... other apps
       // Staging (Netlify):
       'https://teamfeedback.netlify.app',

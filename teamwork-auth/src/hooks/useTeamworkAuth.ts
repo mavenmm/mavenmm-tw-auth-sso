@@ -8,11 +8,18 @@ export interface TeamworkAuthConfig {
 
 /**
  * Auto-detect the auth service URL based on environment
+ *
+ * The auth service is hosted on the maven-dashboard server (Digital Ocean droplet)
+ * and proxied through auth.mavenmm.com via Nginx. The service provides:
+ * - JWT-based authentication with dual-token strategy
+ * - Redis-backed session persistence and token blacklisting
+ * - Cross-domain SSO for all *.mavenmm.com applications
  */
 function detectAuthServiceUrl(): string {
   const hostname = window.location.hostname;
 
   // Production: *.mavenmm.com domains use centralized auth service
+  // Auth service is hosted on maven-dashboard server, proxied via auth.mavenmm.com
   if (hostname.endsWith('.mavenmm.com') || hostname === 'mavenmm.com') {
     return 'https://auth.mavenmm.com';
   }
@@ -22,17 +29,18 @@ function detectAuthServiceUrl(): string {
     return 'https://auth.mavenmm.com';
   }
 
-  // Development: localhost uses local auth service on port 9100
+  // Development: localhost uses local dashboard server on port 4000
+  // Run `yarn start` in maven-dashboard/server to start the auth service locally
   if (hostname === 'localhost' || hostname === '127.0.0.1') {
-    return 'http://localhost:9100';
+    return 'http://localhost:4000';
   }
 
   // Fallback for unknown environments
   console.warn(
-    `TeamworkAuth: Unknown hostname "${hostname}". Defaulting to localhost:9100. ` +
+    `TeamworkAuth: Unknown hostname "${hostname}". Defaulting to localhost:4000. ` +
     'Please provide authServiceUrl explicitly if this is incorrect.'
   );
-  return 'http://localhost:9100';
+  return 'http://localhost:4000';
 }
 
 /**
@@ -150,7 +158,7 @@ export function useTeamworkAuth(config: TeamworkAuthConfig = {}) {
     // Start new refresh
     const refreshPromise = (async () => {
       try {
-        const response = await fetch(`${authServiceUrl}/.netlify/functions/refresh`, {
+        const response = await fetch(`${authServiceUrl}/auth/refresh`, {
           method: "POST",
           headers: getAuthHeaders(domainKey),
           credentials: "include", // Send httpOnly cookie
@@ -204,7 +212,7 @@ export function useTeamworkAuth(config: TeamworkAuthConfig = {}) {
         credentials: "include" as RequestCredentials,
       };
 
-      const res = await fetch(`${authServiceUrl}/.netlify/functions/login`, options);
+      const res = await fetch(`${authServiceUrl}/auth/login`, options);
 
       if (!res.ok) {
         let errorDetails;
@@ -251,7 +259,7 @@ export function useTeamworkAuth(config: TeamworkAuthConfig = {}) {
     }
 
     try {
-      const response = await fetch(`${authServiceUrl}/.netlify/functions/user`, {
+      const response = await fetch(`${authServiceUrl}/auth/user`, {
         method: "GET",
         headers: {
           ...getAuthHeaders(domainKey),
@@ -285,7 +293,7 @@ export function useTeamworkAuth(config: TeamworkAuthConfig = {}) {
     try {
       // If we have a valid access token, use it
       if (accessTokenRef.current && tokenExpiryRef.current > Date.now()) {
-        const response = await fetch(`${authServiceUrl}/.netlify/functions/checkAuth`, {
+        const response = await fetch(`${authServiceUrl}/auth/checkAuth`, {
           method: "GET",
           headers: {
             ...getAuthHeaders(domainKey),
@@ -335,7 +343,7 @@ export function useTeamworkAuth(config: TeamworkAuthConfig = {}) {
 
       // After refresh, check again
       if (accessTokenRef.current) {
-        const response = await fetch(`${authServiceUrl}/.netlify/functions/checkAuth`, {
+        const response = await fetch(`${authServiceUrl}/auth/checkAuth`, {
           method: "GET",
           headers: {
             ...getAuthHeaders(domainKey),
@@ -395,12 +403,12 @@ export function useTeamworkAuth(config: TeamworkAuthConfig = {}) {
       // Check if this is a connection error
       const isConnectionError = err instanceof TypeError && err.message.includes('fetch');
 
-      if (isConnectionError && authServiceUrl.includes('localhost:9100')) {
+      if (isConnectionError && authServiceUrl.includes('localhost:4000')) {
         const errorMessage =
-          '⚠️ Auth service not running on localhost:9100\n\n' +
+          '⚠️ Auth service not running on localhost:4000\n\n' +
           'To start the auth service:\n' +
-          '  cd auth-service/\n' +
-          '  npm run dev\n\n' +
+          '  cd maven-dashboard/server\n' +
+          '  yarn start\n\n' +
           'Or provide a custom authServiceUrl in the config.';
 
         setError(errorMessage);
@@ -453,7 +461,7 @@ export function useTeamworkAuth(config: TeamworkAuthConfig = {}) {
         headers["Authorization"] = `Bearer ${accessTokenRef.current}`;
       }
 
-      await fetch(`${authServiceUrl}/.netlify/functions/logout`, {
+      await fetch(`${authServiceUrl}/auth/logout`, {
         method: "GET",
         headers,
         credentials: "include",

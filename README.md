@@ -1,10 +1,15 @@
-# Teamwork Auth 🚀 v2.0
+# Teamwork Auth 🚀 v3.0
 
 **High-security centralized authentication for Maven Marketing applications**
 
 A React package and auth service providing enterprise-grade Teamwork SSO with dual-token architecture, domain authentication keys, and comprehensive security features.
 
-## Architecture v2.0 - High Security SSO
+> **Note (v3.0)**: The auth service has been migrated from Netlify serverless functions to the
+> **maven-dashboard server** (Digital Ocean droplet). This provides Redis-backed session persistence,
+> token blacklisting, and improved reliability. The API endpoints have changed from
+> `/.netlify/functions/*` to `/auth/*`.
+
+## Architecture v3.0 - High Security SSO
 
 ```mermaid
 graph TB
@@ -19,17 +24,19 @@ graph TB
 
 ### Components:
 1. **Frontend Package** (`@mavenmm/teamwork-auth`): React hooks and components
-2. **Auth Service** (`auth.mavenmm.com`): Centralized authentication server
-3. **Dual-Token System**: 15-min access tokens + 7-day refresh tokens
-4. **Domain Keys**: Unique authentication keys per application
+2. **Auth Service** (`auth.mavenmm.com`): Routes to maven-dashboard server via Nginx
+3. **Backend** (`maven-dashboard/server`): Express routes at `/auth/*` with Redis persistence
+4. **Dual-Token System**: 15-min access tokens + 7-day refresh tokens
+5. **Domain Keys**: Unique authentication keys per application
 
 ### Security Features:
 - 🔐 **Short-lived tokens**: 15-minute access tokens reduce exposure window
 - 🔄 **Token rotation**: Refresh tokens are single-use
 - 🔑 **Domain authentication**: Prevents domain spoofing attacks
-- 🚫 **Token blacklisting**: Immediate revocation on logout
-- ⚡ **Rate limiting**: Brute force protection
+- 🚫 **Token blacklisting**: Redis-backed immediate revocation on logout
+- ⚡ **Rate limiting**: Redis-backed brute force protection
 - 🛡️ **CSP headers**: XSS protection
+- 💾 **Session persistence**: Redis ensures sessions survive server restarts
 
 ## Quick Start
 
@@ -175,7 +182,7 @@ interface TeamworkAuthConfig {
   domainKey?: string;
 
   // Optional - auth service URL
-  // Auto-detects: localhost:9100 vs auth.mavenmm.com
+  // Auto-detects: localhost:4000 vs auth.mavenmm.com
   authServiceUrl?: string;
 }
 ```
@@ -199,29 +206,41 @@ interface User {
 
 ## Auth Service Endpoints
 
+All endpoints are hosted on the maven-dashboard server and accessible via `auth.mavenmm.com`.
+
 All endpoints require:
 - `Origin` header (must be registered)
 - `X-Domain-Key` header (domain authentication key)
 
-### `POST /.netlify/functions/login`
+### `POST /auth/login`
 - **Headers**: `code` (OAuth code), `X-Domain-Key`
 - **Response**: `{ accessToken, expiresIn, user, redirectTo }`
 - **Sets Cookie**: `maven_refresh_token` (httpOnly, 7 days)
 
-### `POST /.netlify/functions/refresh`
+### `POST /auth/refresh`
 - **Headers**: `X-Domain-Key`
 - **Cookie**: `maven_refresh_token`
 - **Response**: `{ accessToken, expiresIn, tokenType }`
-- **Note**: Rotates refresh token (single-use)
+- **Note**: Rotates refresh token (single-use), blacklists old token in Redis
 
-### `GET /.netlify/functions/checkAuth`
+### `GET /auth/checkAuth`
 - **Headers**: `Authorization: Bearer <token>`, `X-Domain-Key`
 - **Response**: `{ authenticated, userId, expiresAt }`
 
-### `GET /.netlify/functions/logout`
+### `GET /auth/logout`
 - **Headers**: `Authorization: Bearer <token>`, `X-Domain-Key`
-- **Effect**: Blacklists both access and refresh tokens
+- **Effect**: Blacklists both access and refresh tokens in Redis
 - **Response**: `{ success: true }`
+
+### `GET /auth/token`
+- **Headers**: `Authorization: Bearer <token>`, `X-Domain-Key`
+- **Response**: `{ accessToken (Teamwork), userId }`
+- **Note**: Returns the Teamwork API token for backend API calls
+
+### `GET /auth/user`
+- **Headers**: `Authorization: Bearer <token>`, `X-Domain-Key`
+- **Response**: `{ user }`
+- **Note**: Fetches fresh user data from Teamwork API
 
 ## Security Best Practices
 
@@ -266,33 +285,35 @@ The hook automatically refreshes tokens. If you see this error:
 
 ### Auth Service Unreachable
 ```
-⚠️ Auth service not running on localhost:9100
+⚠️ Auth service not running on localhost:4000
 ```
-**Solution**: Start auth service: `cd auth-service && npm run dev`
+**Solution**: Start the maven-dashboard server: `cd maven-dashboard/server && yarn start`
 
 ## Project Structure
 
 ```
-├── teamwork-auth/           # NPM package source
+├── teamwork-auth/           # NPM package source (@mavenmm/teamwork-auth)
 │   └── src/
 │       ├── hooks/
 │       │   └── useTeamworkAuth.ts
 │       └── types/
 │           └── index.ts
-├── functions/               # Auth service (Netlify Functions)
-│   ├── config/
-│   │   └── domains.ts       # Domain registry
-│   ├── middleware/
-│   │   ├── validateDomain.ts
-│   │   ├── rateLimit.ts
-│   │   └── cors.ts
-│   ├── utils/
-│   │   ├── tokenManager.ts  # Token creation/validation
-│   │   └── securityHeaders.ts
-│   ├── login.ts
-│   ├── refresh.ts           # NEW in v2
-│   ├── checkAuth.ts
-│   └── logout.ts
+│
+# Auth service is now hosted on maven-dashboard server:
+# maven-dashboard/server/lib/auth/
+#   ├── routes/              # Express route handlers
+#   │   ├── login.ts
+#   │   ├── logout.ts
+#   │   ├── refresh.ts
+#   │   ├── checkAuth.ts
+#   │   ├── token.ts
+#   │   ├── user.ts
+#   │   └── sso.ts
+#   ├── middleware/          # Domain validation, rate limiting, CORS
+#   ├── utils/               # Token manager (Redis-backed), security headers
+#   └── config/              # Domain registry
+│
+├── functions/               # [LEGACY] Original Netlify Functions (deprecated)
 ├── MIGRATION_V2.md          # v1 → v2 migration guide
 ├── INTEGRATION.md           # Integration guide
 ├── DEPLOYMENT.md            # Deployment guide
