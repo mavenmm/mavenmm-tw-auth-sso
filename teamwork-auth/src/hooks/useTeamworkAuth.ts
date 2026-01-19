@@ -429,6 +429,13 @@ export function useTeamworkAuth(config: TeamworkAuthConfig = {}) {
   const cleanUpUrl = () => {
     try {
       const url = new URL(window.location.href);
+
+      // Skip cleanup if this is a QuickBooks OAuth callback (has realmId parameter)
+      // QuickBooks needs the code/state params for its own callback handling
+      if (url.searchParams.has('realmId')) {
+        return;
+      }
+
       const oauthParams = ['code', 'state', 'client_id', 'redirect_uri', 'scope', 'response_type'];
       let hasOAuthParams = false;
 

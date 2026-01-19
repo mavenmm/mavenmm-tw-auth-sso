@@ -1,6 +1,6 @@
 {
   "name": "@mavenmm/teamwork-auth",
-  "version": "3.0.1",
+  "version": "3.0.3",
   "description": "Centralized Teamwork SSO authentication system for React applications with zero backend code required",
   "type": "module",
   "main": "dist/index.esm.js",
