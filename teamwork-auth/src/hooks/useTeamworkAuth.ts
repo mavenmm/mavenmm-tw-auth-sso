@@ -462,7 +462,7 @@ export function useTeamworkAuth(config: TeamworkAuthConfig = {}) {
       }
 
       await fetch(`${authServiceUrl}/auth/logout`, {
-        method: "GET",
+        method: "POST",
         headers,
         credentials: "include",
       });
@@ -489,6 +489,13 @@ export function useTeamworkAuth(config: TeamworkAuthConfig = {}) {
     const urlParams = new URLSearchParams(window.location.search);
     const code = urlParams.get('code');
 
+    // Skip if this is a QuickBooks OAuth callback (has realmId parameter)
+    // QuickBooks uses realmId to identify the company - Teamwork OAuth doesn't use this
+    const isQuickBooksCallback = urlParams.has('realmId');
+    if (isQuickBooksCallback) {
+      return;
+    }
+
     if (code && !isAuthenticated) {
       // Prevent duplicate login attempts
       const previousCode = localStorage.getItem("maven_sso_code");
@@ -504,11 +511,13 @@ export function useTeamworkAuth(config: TeamworkAuthConfig = {}) {
 
   // Check authentication on mount
   useEffect(() => {
-    // Skip checkAuth if there's an OAuth code in URL - login will handle it
+    // Skip checkAuth if there's a Teamwork OAuth code in URL - login will handle it
+    // But DO run checkAuth for QuickBooks callbacks (which have realmId parameter)
     const urlParams = new URLSearchParams(window.location.search);
     const hasOAuthCode = urlParams.has('code');
+    const isQuickBooksCallback = urlParams.has('realmId');
 
-    if (!hasOAuthCode) {
+    if (!hasOAuthCode || isQuickBooksCallback) {
       checkAuth();
     }
 

@@ -32,6 +32,15 @@ export default function AuthProvider({
   useEffect(() => {
     // Read OAuth code from URL on mount (works with any framework)
     const params = new URLSearchParams(window.location.search);
+
+    // Skip QuickBooks OAuth callbacks (identified by realmId parameter)
+    // QuickBooks uses realmId to identify the company - Teamwork OAuth doesn't use this
+    const isQuickBooksCallback = params.has('realmId');
+    if (isQuickBooksCallback) {
+      setCode(null);
+      return;
+    }
+
     setCode(params.get("code"));
   }, []);
 
