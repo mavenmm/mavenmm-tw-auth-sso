@@ -17,6 +17,11 @@ All notable changes to this project will be documented in this file.
 - `AccessDenied` type and `AccessDeniedError` are exported.
 - First unit tests (`src/hooks/__tests__/accessDenied.test.tsx`).
 
+### Fixed
+- `repository`, `bugs` and `homepage` in package.json pointed at `mavenmm/teamwork-auth`, which
+  does not exist, so the npm page linked nowhere. They now point at `mavenmm/mavenmm-tw-auth-sso`
+  (`repository.directory: teamwork-auth`).
+
 ### Changed
 - The build-env domain-key lookup moved to `src/utils/buildEnv.ts`, unchanged, so the hook
   can load under Jest (`import.meta` is a syntax error in its CommonJS transform).

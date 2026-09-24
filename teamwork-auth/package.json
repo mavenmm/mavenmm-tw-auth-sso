@@ -45,12 +45,13 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mavenmm/teamwork-auth.git"
+    "url": "git+https://github.com/mavenmm/mavenmm-tw-auth-sso.git",
+    "directory": "teamwork-auth"
   },
   "bugs": {
-    "url": "https://github.com/mavenmm/teamwork-auth/issues"
+    "url": "https://github.com/mavenmm/mavenmm-tw-auth-sso/issues"
   },
-  "homepage": "https://github.com/mavenmm/teamwork-auth#readme",
+  "homepage": "https://github.com/mavenmm/mavenmm-tw-auth-sso/tree/main/teamwork-auth#readme",
   "peerDependencies": {
     "react": ">=16.8.0",
     "react-dom": ">=16.8.0"
