@@ -1,5 +1,4 @@
 import { useEffect, createContext, useContext, useRef, useState } from "react";
-import { Login } from "../components/Login";
 import { useTeamworkAuth, type TeamworkAuthConfig } from "../hooks/useTeamworkAuth";
 import type { User, AuthContextType } from "../types";
 
@@ -23,7 +22,7 @@ export default function AuthProvider({
   children,
   authConfig,
 }: AuthProviderProps) {
-  const { user, setUser, logout, loading, isAuthenticated, login, getAccessToken } =
+  const { user, setUser, logout, loading, isAuthenticated, login, getAccessToken, accessDenied } =
     useTeamworkAuth(authConfig);
 
   // Get the code from the URL for the teamwork login flow (framework-agnostic)
@@ -44,7 +43,7 @@ export default function AuthProvider({
     setCode(params.get("code"));
   }, []);
 
-  const value = { user, logout, loading, isAuthenticated, getAccessToken };
+  const value = { user, logout, loading, isAuthenticated, getAccessToken, accessDenied };
 
   // Use refs to prevent infinite loops
   const lastCodeRef = useRef<string | null>(null);

@@ -84,8 +84,13 @@ Main authentication hook.
 - `isAuthenticated`: boolean
 - `loading`: boolean
 - `error`: string or null
+- `accessDenied`: `{ code, message }` or null (v3.1.0+) — set when the auth service
+  refuses sign-in or a session refresh with a 403 (e.g. Maven's access rule does not let
+  this account into this app). `message` is written for the person: show it. Cleared on
+  successful login/refresh and on logout. Also on `useAuthContext()`.
 - `authServiceUrl`: Current auth service URL
-- `login(code: string)`: Function to complete OAuth login
+- `login(code: string)`: Function to complete OAuth login (rejects with
+  `AccessDeniedError` — `message` is the reason, `code` the refusal code — when refused)
 - `logout()`: Function to logout
 - `getAccessToken()`: Function to get current access token
 
@@ -101,7 +106,10 @@ const { user } = useTeamworkAuth({
 
 ### `<Login />` Component
 
-Pre-built Teamwork login button.
+Pre-built Teamwork login button. Inside an `<AuthProvider>` it also shows
+`accessDenied.message` above the button (v3.1.0+), so a refused person sees why instead
+of the same button again. Apps with their own sign-in screen should read
+`useAuthContext().accessDenied` and show it themselves.
 
 **Props:**
 - `clientID` (required): Teamwork OAuth client ID

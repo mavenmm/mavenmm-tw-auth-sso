@@ -1,4 +1,6 @@
 import "@teamwork/login-button";
+import { useContext } from "react";
+import { AuthContext } from "../providers/AuthProvider";
 import type { LoginProps } from "../types";
 
 export function Login({
@@ -11,6 +13,9 @@ export function Login({
   const TEAMWORK_CLIENT_ID = clientID;
   const TEAMWORK_REDIRECT_URI = redirectURI;
   const TEAMWORK_CLIENT_SECRET = clientSecret;
+  // Why the auth service refused the last sign-in, if it did. Undefined outside
+  // an AuthProvider (the context default is empty), which shows nothing.
+  const { accessDenied } = useContext(AuthContext);
 
   // Check if required props are available
   if (!TEAMWORK_CLIENT_ID || !TEAMWORK_REDIRECT_URI) {
@@ -51,6 +56,25 @@ VITE_TEAMWORK_REDIRECT_URI=https://your-app.com`}
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%' }}>
+      {accessDenied && (
+        <p
+          role="alert"
+          style={{
+            maxWidth: '28rem',
+            margin: '0 0 16px',
+            padding: '12px 16px',
+            border: '1px solid #f5c2c0',
+            borderRadius: '6px',
+            backgroundColor: '#fdecea',
+            color: '#8a1c14',
+            fontSize: '14px',
+            lineHeight: 1.4,
+            textAlign: 'center',
+          }}
+        >
+          {accessDenied.message}
+        </p>
+      )}
       {/* @ts-ignore - Teamwork login button is a web component */}
       <teamwork-login-button
         redirectURI={TEAMWORK_REDIRECT_URI}

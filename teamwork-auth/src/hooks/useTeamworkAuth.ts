@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { User } from "../types";
+import type { AccessDenied, User } from "../types";
+import { domainKeyFromBuildEnv } from "../utils/buildEnv";
 
 export interface TeamworkAuthConfig {
   authServiceUrl?: string; // Optional - auto-detects if not provided
@@ -49,18 +50,7 @@ function detectAuthServiceUrl(): string {
 function getDomainKey(config?: string): string | undefined {
   // Priority: explicit config > environment variable
   if (config) return config;
-
-  // Check for environment variable (Vite uses VITE_ prefix)
-  if (typeof import.meta !== 'undefined' && import.meta.env) {
-    return import.meta.env.VITE_DOMAIN_KEY || import.meta.env.DOMAIN_KEY;
-  }
-
-  // Check for process.env (other build tools)
-  if (typeof process !== 'undefined' && process.env) {
-    return process.env.VITE_DOMAIN_KEY || process.env.DOMAIN_KEY;
-  }
-
-  return undefined;
+  return domainKeyFromBuildEnv();
 }
 
 /**
@@ -76,6 +66,41 @@ function getAuthHeaders(domainKey?: string): Record<string, string> {
   }
 
   return headers;
+}
+
+const DEFAULT_REFUSAL: AccessDenied = {
+  code: "access_denied",
+  message: "Your account doesn't have access to this app. Ask an admin if you believe this is wrong.",
+};
+
+/**
+ * Read the auth service's refusal from a 403 response: `{ error, code, message }`,
+ * where `message` is written for the person. Falls back to a generic line when
+ * the body carries none. Never log the message: it can contain the person's email.
+ */
+async function readRefusal(response: Response): Promise<AccessDenied> {
+  try {
+    const body: unknown = await response.json();
+    if (body && typeof body === "object") {
+      const { code, message } = body as Record<string, unknown>;
+      if (typeof message === "string" && message.length > 0) {
+        return { code: typeof code === "string" && code ? code : DEFAULT_REFUSAL.code, message };
+      }
+    }
+  } catch {
+    // Not JSON: fall through to the generic refusal.
+  }
+  return DEFAULT_REFUSAL;
+}
+
+/** Thrown by login() when the auth service refuses the person; `message` is the reason. */
+export class AccessDeniedError extends Error {
+  code: string;
+  constructor(refusal: AccessDenied) {
+    super(refusal.message);
+    this.name = "AccessDeniedError";
+    this.code = refusal.code;
+  }
 }
 
 /**
@@ -105,6 +130,8 @@ export function useTeamworkAuth(config: TeamworkAuthConfig = {}) {
   const [loading, setLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Why the auth service refused this person (403 at login, refresh or checkAuth).
+  const [accessDenied, setAccessDenied] = useState<AccessDenied | null>(null);
 
   // Access token management (stored in memory, NOT localStorage for security)
   const accessTokenRef = useRef<string | null>(null);
@@ -165,6 +192,11 @@ export function useTeamworkAuth(config: TeamworkAuthConfig = {}) {
         });
 
         if (!response.ok) {
+          // 403 = the session is valid but this person may no longer use the app
+          // (the auth service re-checks access on refresh). 401 = simply no session.
+          if (response.status === 403) {
+            setAccessDenied(await readRefusal(response));
+          }
           throw new Error(`Token refresh failed: ${response.status}`);
         }
 
@@ -172,6 +204,8 @@ export function useTeamworkAuth(config: TeamworkAuthConfig = {}) {
 
         // Store new access token
         storeAccessToken(data.accessToken, data.expiresIn);
+        // Allowed again (e.g. access was granted since the last refusal).
+        setAccessDenied(null);
       } catch (err) {
         console.error('Token refresh failed:', err);
         // Clear auth state on refresh failure
@@ -215,11 +249,14 @@ export function useTeamworkAuth(config: TeamworkAuthConfig = {}) {
       const res = await fetch(`${authServiceUrl}/auth/login`, options);
 
       if (!res.ok) {
-        let errorDetails;
-        try {
-          errorDetails = await res.json();
-        } catch {
-          errorDetails = await res.text();
+        if (res.status === 403) {
+          // Refused by the access rule. Keep the reason for the login screen, and
+          // drop the code from the URL: it is single-use, so a reload would only
+          // fail again.
+          const refusal = await readRefusal(res);
+          setAccessDenied(refusal);
+          cleanUpUrl();
+          throw new AccessDeniedError(refusal);
         }
         throw new Error(`Login failed with status: ${res.status}`);
       }
@@ -235,6 +272,7 @@ export function useTeamworkAuth(config: TeamworkAuthConfig = {}) {
       }
       setUser(data.user);
       setIsAuthenticated(true);
+      setAccessDenied(null);
       setLoading(false);
       localStorage.setItem("maven_sso_user", JSON.stringify(data.user));
 
@@ -246,6 +284,8 @@ export function useTeamworkAuth(config: TeamworkAuthConfig = {}) {
       // Clear the code on error so it can be retried
       localStorage.removeItem("maven_sso_code");
       setLoading(false);
+      // A refusal carries its reason; anything else stays generic.
+      if (err instanceof AccessDeniedError) throw err;
       throw new Error("Failed to log in");
     }
   };
@@ -302,6 +342,10 @@ export function useTeamworkAuth(config: TeamworkAuthConfig = {}) {
           credentials: "include",
         });
 
+        if (response.status === 403) {
+          setAccessDenied(await readRefusal(response));
+        }
+
         if (response.ok) {
           const data = await response.json();
 
@@ -351,6 +395,10 @@ export function useTeamworkAuth(config: TeamworkAuthConfig = {}) {
           },
           credentials: "include",
         });
+
+        if (response.status === 403) {
+          setAccessDenied(await readRefusal(response));
+        }
 
         if (response.ok) {
           const data = await response.json();
@@ -477,6 +525,7 @@ export function useTeamworkAuth(config: TeamworkAuthConfig = {}) {
       // Clear all state
       setUser(null);
       setIsAuthenticated(false);
+      setAccessDenied(null);
       clearAccessToken();
       localStorage.removeItem("maven_sso_user");
       localStorage.removeItem("maven_sso_code");
@@ -486,6 +535,7 @@ export function useTeamworkAuth(config: TeamworkAuthConfig = {}) {
       // Still clear local state even if API call fails
       setUser(null);
       setIsAuthenticated(false);
+      setAccessDenied(null);
       clearAccessToken();
       localStorage.removeItem("maven_sso_user");
     }
@@ -544,6 +594,7 @@ export function useTeamworkAuth(config: TeamworkAuthConfig = {}) {
     login,
     logout,
     error,
+    accessDenied,
     authServiceUrl,
     // Expose method to get current Maven access token (for sending to your backend)
     getAccessToken: () => accessTokenRef.current,
