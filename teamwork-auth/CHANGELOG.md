@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.1.0] - 2026-09-24
+
+### Added
+- **The reason a sign-in was refused.** The auth service refuses people its access rule
+  does not let into the app (403 `{ error, code, message }`), at login and whenever it
+  re-checks a session on refresh or `checkAuth`. The library used to discard that reply,
+  so a refused person saw the login button again with no explanation.
+  - `accessDenied: { code, message } | null` on `useTeamworkAuth()` and `useAuthContext()`.
+  - `<Login>` shows `accessDenied.message` above the button when inside an `<AuthProvider>`.
+  - `login()` rejects with `AccessDeniedError` (`message` = the reason, `code` = the
+    refusal code) instead of a generic "Failed to log in".
+  - A refused login drops the single-use `?code=` from the URL, so a reload does not retry it.
+- `AccessDenied` type and `AccessDeniedError` are exported.
+- First unit tests (`src/hooks/__tests__/accessDenied.test.tsx`).
+
+### Changed
+- The build-env domain-key lookup moved to `src/utils/buildEnv.ts`, unchanged, so the hook
+  can load under Jest (`import.meta` is a syntax error in its CommonJS transform).
+
 ## [3.0.0] - 2026-01-15
 
 ### Breaking Changes

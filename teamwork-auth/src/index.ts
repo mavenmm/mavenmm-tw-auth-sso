@@ -2,7 +2,7 @@
 import "./utils/polyfills";
 
 // Main exports for Teamwork Auth package - Centralized Auth Service
-export { useTeamworkAuth, type TeamworkAuthConfig } from "./hooks/useTeamworkAuth";
+export { useTeamworkAuth, AccessDeniedError, type TeamworkAuthConfig } from "./hooks/useTeamworkAuth";
 export { Login } from "./components/Login";
 
 // Auth Provider (React Context)
@@ -16,6 +16,7 @@ export {
 export type {
   User,
   AuthContextType,
+  AccessDenied,
   LoginResult,
 } from "./types";
 
